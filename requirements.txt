@@ -1,9 +1,7 @@
 streamlit
-MetaTrader5
 pandas
 numpy
 plotly
-ta
 yfinance
 scikit-learn
 requests
