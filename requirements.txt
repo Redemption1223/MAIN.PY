@@ -1,9 +1,9 @@
 streamlit
+MetaTrader5
 pandas
 numpy
 plotly
+ta
 yfinance
 scikit-learn
-ta
 requests
-rich==13.7.0
