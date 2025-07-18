@@ -1,32 +1,32 @@
-# CTRADER AI TRADING SYSTEM - STREAMLIT CLOUD COMPATIBLE
-# Fixed version that works perfectly on Streamlit Cloud
+# CTRADER REAL LIVE TRADING SYSTEM
+# ACTUAL WebSocket connection to your real cTrader account
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import time
-import requests
 import json
+import websocket
+import ssl
+import threading
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import yfinance as yf
 import warnings
 warnings.filterwarnings('ignore')
 
 # Page configuration
 st.set_page_config(
-    page_title="🤖 FxPro cTrader AI Trading System",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="🔥 LIVE cTrader Trading System",
+    page_icon="🔥",
+    layout="wide"
 )
 
 # Custom CSS
 st.markdown("""
 <style>
     .main-header {
-        background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        background: linear-gradient(45deg, #FF0000, #FF6B6B);
         color: white;
         padding: 25px;
         border-radius: 15px;
@@ -35,52 +35,43 @@ st.markdown("""
         font-weight: bold;
         margin-bottom: 30px;
         animation: pulse 2s infinite;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        box-shadow: 0 4px 15px rgba(255,0,0,0.3);
     }
     
-    @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.02); }
-        100% { transform: scale(1); }
-    }
-    
-    .live-connected {
-        background: linear-gradient(45deg, #00b894, #00a085);
+    .live-trading {
+        background: linear-gradient(45deg, #FF0000, #FF4444);
         color: white;
         padding: 20px;
         border-radius: 10px;
         margin: 15px 0;
         text-align: center;
         font-weight: bold;
-        font-size: 18px;
-        box-shadow: 0 2px 10px rgba(0,184,148,0.3);
+        font-size: 20px;
+        box-shadow: 0 2px 10px rgba(255,0,0,0.3);
+        animation: pulse 3s infinite;
     }
     
-    .simulation-mode {
-        background: linear-gradient(45deg, #6c5ce7, #a29bfe);
-        color: white;
-        padding: 20px;
+    .connection-status {
+        background: rgba(255,255,255,0.1);
+        padding: 15px;
         border-radius: 10px;
-        margin: 15px 0;
-        text-align: center;
-        font-weight: bold;
-        font-size: 18px;
-        box-shadow: 0 2px 10px rgba(108,92,231,0.3);
+        margin: 10px 0;
+        border: 1px solid rgba(255,255,255,0.2);
     }
     
     .account-metric {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #FF6B6B 0%, #FF0000 100%);
         color: white;
         padding: 20px;
         border-radius: 12px;
         margin: 8px;
         text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 15px rgba(255,0,0,0.2);
         border: 1px solid rgba(255,255,255,0.1);
     }
     
     .signal-buy {
-        background: linear-gradient(45deg, #28a745, #20c997);
+        background: linear-gradient(45deg, #00FF00, #00AA00);
         color: white;
         padding: 20px;
         border-radius: 12px;
@@ -88,12 +79,12 @@ st.markdown("""
         font-weight: bold;
         text-align: center;
         margin: 15px 0;
-        box-shadow: 0 4px 15px rgba(40,167,69,0.3);
-        border: 2px solid #155724;
+        box-shadow: 0 4px 15px rgba(0,255,0,0.3);
+        border: 2px solid #004400;
     }
     
     .signal-sell {
-        background: linear-gradient(45deg, #dc3545, #fd7e14);
+        background: linear-gradient(45deg, #FF0000, #AA0000);
         color: white;
         padding: 20px;
         border-radius: 12px;
@@ -101,318 +92,302 @@ st.markdown("""
         font-weight: bold;
         text-align: center;
         margin: 15px 0;
-        box-shadow: 0 4px 15px rgba(220,53,69,0.3);
-        border: 2px solid #721c24;
+        box-shadow: 0 4px 15px rgba(255,0,0,0.3);
+        border: 2px solid #440000;
     }
     
-    .signal-hold {
-        background: linear-gradient(45deg, #ffc107, #fd7e14);
-        color: #212529;
-        padding: 20px;
-        border-radius: 12px;
-        font-size: 20px;
-        font-weight: bold;
-        text-align: center;
-        margin: 15px 0;
-        box-shadow: 0 4px 15px rgba(255,193,7,0.3);
-        border: 2px solid #b8860b;
-    }
-    
-    .api-status {
-        background: rgba(255,255,255,0.05);
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .trade-history {
-        background: rgba(255,255,255,0.05);
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border: 1px solid rgba(255,255,255,0.1);
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize session state
-if 'api_connected' not in st.session_state:
-    st.session_state.api_connected = False
-if 'system_running' not in st.session_state:
-    st.session_state.system_running = False
-if 'account_balance' not in st.session_state:
-    st.session_state.account_balance = 10000.0
-if 'daily_pnl' not in st.session_state:
-    st.session_state.daily_pnl = 0.0
-if 'trades_today' not in st.session_state:
-    st.session_state.trades_today = 0
-if 'total_trades' not in st.session_state:
-    st.session_state.total_trades = 0
-if 'winning_trades' not in st.session_state:
-    st.session_state.winning_trades = 0
-if 'trade_history' not in st.session_state:
-    st.session_state.trade_history = []
-if 'connection_status' not in st.session_state:
-    st.session_state.connection_status = 'simulation'
+if 'ctrader_ws_connected' not in st.session_state:
+    st.session_state.ctrader_ws_connected = False
+if 'real_account_balance' not in st.session_state:
+    st.session_state.real_account_balance = 0.0
+if 'real_account_equity' not in st.session_state:
+    st.session_state.real_account_equity = 0.0
+if 'live_trades' not in st.session_state:
+    st.session_state.live_trades = []
+if 'connection_log' not in st.session_state:
+    st.session_state.connection_log = []
+if 'ws_client' not in st.session_state:
+    st.session_state.ws_client = None
+if 'account_authorized' not in st.session_state:
+    st.session_state.account_authorized = False
 
-class cTraderAPI:
-    """cTrader API Handler - Streamlit Cloud Compatible"""
+class cTraderWebSocketClient:
+    """REAL cTrader WebSocket API Client"""
     
     def __init__(self):
-        self.access_token = None
-        self.refresh_token = None
-        self.client_id = None
-        self.client_secret = None
+        # REAL cTrader Open API endpoints
+        self.demo_host = "wss://demo.ctraderapi.com:5036"
+        self.live_host = "wss://live.ctraderapi.com:5036"
+        
+        self.ws = None
         self.connected = False
-        self.has_trading_scope = False
+        self.authorized = False
         
-        # Correct cTrader Open API endpoints
-        self.auth_base = "https://openapi.ctrader.com"
-        self.api_base = "https://api.ctraderopen.com"
+        # Your credentials
+        self.client_id = "16128_1N2FGw1faESealOA"
+        self.client_secret = None
+        self.access_token = "FZVyeFsxKkElJrvinCQxoTPSRu7ryZXd8Qn66szleKk"
+        self.account_id = "10618580"
         
-    def set_credentials(self, access_token, refresh_token, client_id=None, client_secret=None):
-        """Set API credentials"""
-        self.access_token = access_token.strip()
-        self.refresh_token = refresh_token.strip()
-        self.client_id = client_id.strip() if client_id else None
-        self.client_secret = client_secret.strip() if client_secret else None
+        # Message ID counter
+        self.msg_id = 1
         
-    def test_connection(self):
-        """Test API connection"""
-        try:
-            headers = {
-                'Authorization': f'Bearer {self.access_token}',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-            
-            # Try multiple possible endpoints
-            endpoints_to_try = [
-                f"{self.auth_base}/v1/accounts",
-                f"{self.api_base}/v1/accounts", 
-                f"{self.auth_base}/accounts",
-                f"{self.api_base}/accounts"
-            ]
-            
-            for endpoint in endpoints_to_try:
-                try:
-                    response = requests.get(endpoint, headers=headers, timeout=10)
-                    
-                    if response.status_code == 200:
-                        self.connected = True
-                        self.has_trading_scope = True  # Since we have trading tokens now!
-                        st.session_state.api_connected = True
-                        st.session_state.connection_status = 'live'
-                        return True, f"🔥 LIVE TRADING CONNECTED! Endpoint: {endpoint}", response.json()
-                    
-                    elif response.status_code == 401:
-                        return False, "❌ Invalid access token. Token may be expired.", None
-                    
-                    elif response.status_code == 403:
-                        return False, "❌ Access denied. Check token permissions.", None
-                        
-                except requests.exceptions.RequestException:
-                    continue
-            
-            # If all endpoints fail, still enable trading mode since we have trading tokens
-            self.connected = True
-            self.has_trading_scope = True
-            st.session_state.api_connected = True
-            st.session_state.connection_status = 'live_simulation'
-            return True, "🚀 LIVE TRADING TOKENS ACTIVE! (Enhanced simulation mode with trading scope)", None
-                    
-        except Exception as e:
-            return False, f"❌ Connection error: {str(e)}", None
+    def log_message(self, message):
+        """Log connection messages"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {message}"
+        st.session_state.connection_log.append(log_entry)
+        # Keep only last 20 logs
+        if len(st.session_state.connection_log) > 20:
+            st.session_state.connection_log = st.session_state.connection_log[-20:]
     
-    def get_account_info(self):
-        """Get account information"""
-        if not self.connected:
-            # Return simulated account data
-            return {
-                'account_id': '10618580',
-                'balance': st.session_state.account_balance,
-                'equity': st.session_state.account_balance + st.session_state.daily_pnl,
-                'currency': 'USD',
-                'leverage': '1:100',
-                'broker': 'FxPro',
-                'status': 'Simulation Mode',
-                'margin_used': 0.0,
-                'free_margin': st.session_state.account_balance + st.session_state.daily_pnl
-            }
+    def on_open(self, ws):
+        """WebSocket connection opened"""
+        self.connected = True
+        st.session_state.ctrader_ws_connected = True
+        self.log_message("🔥 CONNECTED to cTrader WebSocket!")
         
-        # In live mode, we'd get real account data here
-        return {
-            'account_id': '10618580',
-            'balance': st.session_state.account_balance,
-            'equity': st.session_state.account_balance + st.session_state.daily_pnl,
-            'currency': 'USD',
-            'leverage': '1:100',
-            'broker': 'FxPro',
-            'status': 'Live API Connected (Read-Only)',
-            'margin_used': 0.0,
-            'free_margin': st.session_state.account_balance + st.session_state.daily_pnl
-        }
+        # Send application authentication
+        self.authenticate_application()
     
-    def refresh_token_if_needed(self):
-        """Refresh access token if needed"""
-        if not self.refresh_token or not self.client_id or not self.client_secret:
-            return False, "Missing refresh credentials"
-        
+    def on_message(self, ws, message):
+        """Handle incoming WebSocket messages"""
         try:
-            data = {
-                'grant_type': 'refresh_token',
-                'refresh_token': self.refresh_token,
-                'client_id': self.client_id,
-                'client_secret': self.client_secret
-            }
+            # cTrader sends JSON messages
+            data = json.loads(message)
             
-            response = requests.post(f"{self.auth_base}/apps/token", data=data, timeout=10)
+            self.log_message(f"📨 Received: {data.get('payloadType', 'Unknown')}")
             
-            if response.status_code == 200:
-                token_data = response.json()
-                self.access_token = token_data.get('accessToken', self.access_token)
-                return True, "✅ Token refreshed successfully"
+            # Handle different message types
+            if data.get('payloadType') == 'PROTO_OA_APPLICATION_AUTH_RES':
+                self.handle_app_auth_response(data)
+            elif data.get('payloadType') == 'PROTO_OA_ACCOUNT_AUTH_RES':
+                self.handle_account_auth_response(data)
+            elif data.get('payloadType') == 'PROTO_OA_TRADER_RES':
+                self.handle_trader_response(data)
+            elif data.get('payloadType') == 'PROTO_OA_EXECUTION_EVENT':
+                self.handle_execution_event(data)
+            elif data.get('payloadType') == 'ERROR_RES':
+                self.handle_error_response(data)
             else:
-                return False, f"❌ Token refresh failed: {response.status_code}"
+                self.log_message(f"📋 Unknown message type: {data.get('payloadType')}")
                 
+        except json.JSONDecodeError:
+            self.log_message("❌ Failed to parse message as JSON")
         except Exception as e:
-            return False, f"❌ Token refresh error: {str(e)}"
-
-class MarketDataProvider:
-    """Market data provider using Yahoo Finance"""
+            self.log_message(f"❌ Message handling error: {str(e)}")
     
-    @staticmethod
-    def get_current_price(symbol):
-        """Get current market price"""
-        try:
-            symbol_map = {
-                'EURUSD': 'EURUSD=X', 'GBPUSD': 'GBPUSD=X', 'USDJPY': 'USDJPY=X',
-                'AUDUSD': 'AUDUSD=X', 'USDCAD': 'USDCAD=X', 'USDCHF': 'USDCHF=X',
-                'NZDUSD': 'NZDUSD=X', 'EURGBP': 'EURGBP=X', 'EURJPY': 'EURJPY=X'
-            }
-            
-            yahoo_symbol = symbol_map.get(symbol, f"{symbol}=X")
-            ticker = yf.Ticker(yahoo_symbol)
-            data = ticker.history(period="1d", interval="1m")
-            
-            if not data.empty:
-                current_price = data['Close'].iloc[-1]
-                # Add small random movement for realism
-                movement = np.random.uniform(-0.0001, 0.0001)
-                return current_price + movement
-            
-            # Fallback prices
-            fallback_prices = {
-                'EURUSD': 1.0850, 'GBPUSD': 1.2650, 'USDJPY': 148.50,
-                'AUDUSD': 0.6750, 'USDCAD': 1.3580, 'USDCHF': 0.8450,
-                'NZDUSD': 0.6250, 'EURGBP': 0.8580, 'EURJPY': 162.50
-            }
-            return fallback_prices.get(symbol, 1.0000)
-            
-        except Exception as e:
-            fallback_prices = {
-                'EURUSD': 1.0850, 'GBPUSD': 1.2650, 'USDJPY': 148.50,
-                'AUDUSD': 0.6750, 'USDCAD': 1.3580, 'USDCHF': 0.8450,
-                'NZDUSD': 0.6250, 'EURGBP': 0.8580, 'EURJPY': 162.50
-            }
-            return fallback_prices.get(symbol, 1.0000)
-
-class TradingEngine:
-    """Advanced trading engine with realistic simulation"""
+    def on_error(self, ws, error):
+        """Handle WebSocket errors"""
+        self.log_message(f"❌ WebSocket Error: {str(error)}")
     
-    def __init__(self):
-        self.market_data = MarketDataProvider()
+    def on_close(self, ws, close_status_code, close_msg):
+        """WebSocket connection closed"""
+        self.connected = False
+        self.authorized = False
+        st.session_state.ctrader_ws_connected = False
+        st.session_state.account_authorized = False
+        self.log_message(f"🔌 Connection closed: {close_status_code} - {close_msg}")
+    
+    def authenticate_application(self):
+        """Send application authentication message"""
+        auth_msg = {
+            "clientMsgId": str(self.msg_id),
+            "payloadType": "PROTO_OA_APPLICATION_AUTH_REQ",
+            "payload": {
+                "clientId": self.client_id,
+                "clientSecret": self.client_secret or "dummy_secret"
+            }
+        }
         
-    def execute_trade(self, symbol, side, volume, entry_price):
-        """Execute trade with realistic simulation"""
+        self.send_message(auth_msg)
+        self.msg_id += 1
+        self.log_message("🔐 Sent application authentication...")
+    
+    def authenticate_account(self):
+        """Send account authentication message"""
+        if not self.access_token:
+            self.log_message("❌ No access token provided")
+            return
+        
+        auth_msg = {
+            "clientMsgId": str(self.msg_id),
+            "payloadType": "PROTO_OA_ACCOUNT_AUTH_REQ",
+            "payload": {
+                "ctidTraderAccountId": int(self.account_id),
+                "accessToken": self.access_token
+            }
+        }
+        
+        self.send_message(auth_msg)
+        self.msg_id += 1
+        self.log_message("🔑 Sent account authentication...")
+    
+    def send_message(self, message):
+        """Send message to WebSocket"""
         try:
-            # Simulate realistic trading conditions
-            spread = self.get_spread(symbol)
-            slippage = np.random.uniform(0, 0.0001)  # Random slippage
-            
-            # Apply spread and slippage
-            if side.upper() == 'BUY':
-                execution_price = entry_price + spread/2 + slippage
+            if self.ws and self.connected:
+                json_msg = json.dumps(message)
+                self.ws.send(json_msg)
+                return True
             else:
-                execution_price = entry_price - spread/2 - slippage
+                self.log_message("❌ Cannot send - not connected")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Send error: {str(e)}")
+            return False
+    
+    def handle_app_auth_response(self, data):
+        """Handle application authentication response"""
+        if data.get('payload', {}).get('errorCode'):
+            self.log_message(f"❌ App auth failed: {data['payload']['errorCode']}")
+        else:
+            self.log_message("✅ Application authenticated!")
+            # Now authenticate account
+            self.authenticate_account()
+    
+    def handle_account_auth_response(self, data):
+        """Handle account authentication response"""
+        if data.get('payload', {}).get('errorCode'):
+            error_code = data['payload']['errorCode']
+            self.log_message(f"❌ Account auth failed: {error_code}")
+        else:
+            self.authorized = True
+            st.session_state.account_authorized = True
+            self.log_message("🔥 ACCOUNT AUTHENTICATED! LIVE TRADING ACTIVE!")
             
-            # Simulate trade duration and market movement
-            time_in_trade = np.random.uniform(30, 180)  # 30 seconds to 3 minutes
-            volatility = self.get_volatility(symbol)
+            # Request account info
+            self.request_trader_info()
+    
+    def handle_trader_response(self, data):
+        """Handle trader information response"""
+        payload = data.get('payload', {})
+        trader = payload.get('trader', {})
+        
+        if trader:
+            balance = trader.get('balance', 0) / 100  # cTrader sends in cents
+            st.session_state.real_account_balance = balance
+            st.session_state.real_account_equity = balance  # Simplified
             
-            # Random market movement with slight positive bias
-            market_movement = np.random.normal(0.0002, volatility)  # Slight positive bias
-            exit_price = execution_price + market_movement
-            
-            # Calculate P&L
-            if 'JPY' in symbol:
-                pip_value = 0.01
-                pips_gained = (exit_price - execution_price) * (1 if side.upper() == 'BUY' else -1) / pip_value
-            else:
-                pip_value = 0.0001
-                pips_gained = (exit_price - execution_price) * (1 if side.upper() == 'BUY' else -1) / pip_value
-            
-            # Calculate monetary P&L (simplified)
-            pnl = pips_gained * (volume / 10000) * pip_value * 100
-            
-            # Apply commission/fees (typical 0.5-2 pips)
-            commission = np.random.uniform(0.5, 1.5) * (volume / 10000) * pip_value * 100
-            pnl -= commission
-            
-            # Update session state
-            st.session_state.daily_pnl += pnl
-            st.session_state.trades_today += 1
-            st.session_state.total_trades += 1
-            
-            if pnl > 0:
-                st.session_state.winning_trades += 1
-            
-            # Record trade
-            trade_record = {
-                'time': datetime.now().strftime("%H:%M:%S"),
-                'symbol': symbol,
-                'side': side,
-                'volume': volume,
-                'entry': execution_price,
-                'exit': exit_price,
-                'pips': round(pips_gained, 1),
-                'pnl': round(pnl, 2),
-                'commission': round(commission, 2)
+            self.log_message(f"💰 Real Account Balance: ${balance:,.2f}")
+    
+    def handle_execution_event(self, data):
+        """Handle trade execution events"""
+        execution = data.get('payload', {})
+        order = execution.get('order', {})
+        
+        if order:
+            trade_info = {
+                'orderId': order.get('orderId'),
+                'symbol': order.get('symbolId'),
+                'side': order.get('orderType'),
+                'volume': order.get('requestedVolume', 0) / 100,
+                'status': order.get('orderStatus'),
+                'time': datetime.now().strftime("%H:%M:%S")
             }
             
-            st.session_state.trade_history.insert(0, trade_record)
-            if len(st.session_state.trade_history) > 25:
-                st.session_state.trade_history = st.session_state.trade_history[:25]
+            st.session_state.live_trades.append(trade_info)
+            self.log_message(f"📈 Trade executed: {trade_info['symbol']} {trade_info['side']}")
+    
+    def handle_error_response(self, data):
+        """Handle error responses"""
+        error_code = data.get('errorCode', 'Unknown')
+        description = data.get('description', 'No description')
+        self.log_message(f"❌ API Error {error_code}: {description}")
+    
+    def request_trader_info(self):
+        """Request trader account information"""
+        trader_req = {
+            "clientMsgId": str(self.msg_id),
+            "payloadType": "PROTO_OA_TRADER_REQ",
+            "payload": {
+                "ctidTraderAccountId": int(self.account_id)
+            }
+        }
+        
+        self.send_message(trader_req)
+        self.msg_id += 1
+    
+    def place_market_order(self, symbol, side, volume):
+        """Place a real market order"""
+        if not self.authorized:
+            return False, "Account not authorized"
+        
+        order_msg = {
+            "clientMsgId": str(self.msg_id),
+            "payloadType": "PROTO_OA_NEW_ORDER_REQ",
+            "payload": {
+                "ctidTraderAccountId": int(self.account_id),
+                "symbolId": symbol,
+                "orderType": "MARKET",
+                "tradeSide": side.upper(),
+                "volume": int(volume * 100),  # cTrader expects volume in cents
+                "timeInForce": "IMMEDIATE_OR_CANCEL",
+                "comment": "AI Trading System"
+            }
+        }
+        
+        success = self.send_message(order_msg)
+        self.msg_id += 1
+        
+        if success:
+            self.log_message(f"🚀 LIVE ORDER SENT: {side} {volume} {symbol}")
+            return True, f"Live order placed: {side} {volume} {symbol}"
+        else:
+            return False, "Failed to send order"
+    
+    def connect(self, use_demo=True):
+        """Connect to cTrader WebSocket"""
+        try:
+            host = self.demo_host if use_demo else self.live_host
             
-            return True, trade_record
+            # Create SSL context
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # Enable WebSocket debugging
+            websocket.enableTrace(False)  # Set to True for debugging
+            
+            self.log_message(f"🔌 Connecting to {host}...")
+            
+            # Create WebSocket connection
+            self.ws = websocket.WebSocketApp(
+                host,
+                on_open=self.on_open,
+                on_message=self.on_message,
+                on_error=self.on_error,
+                on_close=self.on_close
+            )
+            
+            # Run in a separate thread
+            def run_websocket():
+                self.ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+            
+            ws_thread = threading.Thread(target=run_websocket, daemon=True)
+            ws_thread.start()
+            
+            return True
             
         except Exception as e:
-            return False, f"Trade execution error: {str(e)}"
+            self.log_message(f"❌ Connection failed: {str(e)}")
+            return False
     
-    def get_spread(self, symbol):
-        """Get realistic spreads for different pairs"""
-        spreads = {
-            'EURUSD': 0.00008,  # 0.8 pips
-            'GBPUSD': 0.00012,  # 1.2 pips
-            'USDJPY': 0.008,    # 0.8 pips
-            'AUDUSD': 0.00015,  # 1.5 pips
-            'USDCAD': 0.00018,  # 1.8 pips
-            'USDCHF': 0.00020,  # 2.0 pips
-            'NZDUSD': 0.00025,  # 2.5 pips
-            'EURGBP': 0.00015,  # 1.5 pips
-            'EURJPY': 0.012     # 1.2 pips
-        }
-        return spreads.get(symbol, 0.00015)
-    
-    def get_volatility(self, symbol):
-        """Get volatility for realistic price movement"""
-        volatilities = {
-            'EURUSD': 0.0008, 'GBPUSD': 0.0012, 'USDJPY': 0.08,
-            'AUDUSD': 0.0010, 'USDCAD': 0.0009, 'USDCHF': 0.0009,
-            'NZDUSD': 0.0012, 'EURGBP': 0.0007, 'EURJPY': 0.10
-        }
-        return volatilities.get(symbol, 0.0008)
+    def disconnect(self):
+        """Disconnect from WebSocket"""
+        if self.ws:
+            self.ws.close()
+        self.connected = False
+        self.authorized = False
 
 class TechnicalIndicators:
     """Technical analysis indicators"""
@@ -422,576 +397,295 @@ class TechnicalIndicators:
         return data.rolling(window=period).mean()
     
     @staticmethod
-    def ema(data, period):
-        return data.ewm(span=period).mean()
-    
-    @staticmethod
     def rsi(data, period=14):
         delta = data.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
         rs = gain / loss
         return 100 - (100 / (1 + rs))
-    
-    @staticmethod
-    def bollinger_bands(data, period=20, std_dev=2):
-        sma = TechnicalIndicators.sma(data, period)
-        std = data.rolling(window=period).std()
-        upper_band = sma + (std * std_dev)
-        lower_band = sma - (std * std_dev)
-        return upper_band, lower_band, sma
 
 class AITradingEngine:
-    """AI Trading Engine with multiple strategies"""
+    """AI Trading Engine for live trading"""
     
     def __init__(self):
         self.indicators = TechnicalIndicators()
-        self.market_data = MarketDataProvider()
         
     def analyze_symbol(self, symbol):
-        """Comprehensive AI market analysis"""
+        """Real-time market analysis"""
         try:
             symbol_map = {
                 'EURUSD': 'EURUSD=X', 'GBPUSD': 'GBPUSD=X', 'USDJPY': 'USDJPY=X',
-                'AUDUSD': 'AUDUSD=X', 'USDCAD': 'USDCAD=X', 'USDCHF': 'USDCHF=X',
-                'NZDUSD': 'NZDUSD=X', 'EURGBP': 'EURGBP=X', 'EURJPY': 'EURJPY=X'
+                'AUDUSD': 'AUDUSD=X', 'USDCAD': 'USDCAD=X'
             }
             
             yahoo_symbol = symbol_map.get(symbol, f"{symbol}=X")
             ticker = yf.Ticker(yahoo_symbol)
-            data = ticker.history(period="5d", interval="15m")  # More data points
+            data = ticker.history(period="1d", interval="5m")
             
-            if data.empty or len(data) < 50:
-                return {
-                    'signal': 'HOLD',
-                    'confidence': 0.0,
-                    'reason': 'Insufficient market data',
-                    'indicators': {}
-                }
+            if data.empty or len(data) < 20:
+                return {'signal': 'HOLD', 'confidence': 0.0, 'reason': 'Insufficient data'}
             
-            # Calculate indicators
+            # Technical analysis
             current_price = data['Close'].iloc[-1]
             sma_20 = self.indicators.sma(data['Close'], 20).iloc[-1]
-            sma_50 = self.indicators.sma(data['Close'], 50).iloc[-1]
-            ema_12 = self.indicators.ema(data['Close'], 12).iloc[-1]
             rsi = self.indicators.rsi(data['Close']).iloc[-1]
             
-            # Bollinger Bands
-            bb_upper, bb_lower, bb_middle = self.indicators.bollinger_bands(data['Close'])
-            bb_position = (current_price - bb_lower.iloc[-1]) / (bb_upper.iloc[-1] - bb_lower.iloc[-1])
-            
-            # Volume analysis
-            avg_volume = data['Volume'].rolling(20).mean().iloc[-1]
-            current_volume = data['Volume'].iloc[-1]
-            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
-            
-            # Generate weighted signals
+            # Generate signals
             signals = []
             reasons = []
-            weights = []
             
-            # 1. Trend Analysis (Weight: 4)
-            if current_price > sma_20 > sma_50:
+            if current_price > sma_20 and rsi < 30:
                 signals.append('BUY')
-                reasons.append(f"Strong uptrend - price above MAs")
-                weights.append(4)
-            elif current_price < sma_20 < sma_50:
+                reasons.append(f"Price above SMA20 + RSI oversold ({rsi:.1f})")
+            elif current_price < sma_20 and rsi > 70:
                 signals.append('SELL')
-                reasons.append(f"Strong downtrend - price below MAs")
-                weights.append(4)
+                reasons.append(f"Price below SMA20 + RSI overbought ({rsi:.1f})")
             
-            # 2. RSI Analysis (Weight: 3)
-            if rsi < 25:
-                signals.append('BUY')
-                reasons.append(f"RSI deeply oversold ({rsi:.1f})")
-                weights.append(3)
-            elif rsi < 35 and current_price > sma_20:
-                signals.append('BUY')
-                reasons.append(f"RSI oversold in uptrend ({rsi:.1f})")
-                weights.append(2)
-            elif rsi > 75:
-                signals.append('SELL')
-                reasons.append(f"RSI deeply overbought ({rsi:.1f})")
-                weights.append(3)
-            elif rsi > 65 and current_price < sma_20:
-                signals.append('SELL')
-                reasons.append(f"RSI overbought in downtrend ({rsi:.1f})")
-                weights.append(2)
-            
-            # 3. Bollinger Bands (Weight: 2)
-            if bb_position < 0.15:
-                signals.append('BUY')
-                reasons.append("Price at lower Bollinger Band")
-                weights.append(2)
-            elif bb_position > 0.85:
-                signals.append('SELL')
-                reasons.append("Price at upper Bollinger Band")
-                weights.append(2)
-            
-            # 4. Momentum (Weight: 2)
-            price_change_pct = ((current_price - data['Close'].iloc[-20]) / data['Close'].iloc[-20]) * 100
-            if current_price > ema_12 and ema_12 > sma_20 and price_change_pct > 0.1:
-                signals.append('BUY')
-                reasons.append(f"Strong bullish momentum (+{price_change_pct:.2f}%)")
-                weights.append(2)
-            elif current_price < ema_12 and ema_12 < sma_20 and price_change_pct < -0.1:
-                signals.append('SELL')
-                reasons.append(f"Strong bearish momentum ({price_change_pct:.2f}%)")
-                weights.append(2)
-            
-            # 5. Volume Confirmation (Weight: 1)
-            if volume_ratio > 1.5:
-                if signals and signals[-1] == 'BUY':
-                    reasons.append("High volume confirms bullish move")
-                    weights.append(1)
-                elif signals and signals[-1] == 'SELL':
-                    reasons.append("High volume confirms bearish move")
-                    weights.append(1)
-            
-            # Calculate final signal
-            if signals:
-                buy_weight = sum(w for s, w in zip(signals, weights) if s == 'BUY')
-                sell_weight = sum(w for s, w in zip(signals, weights) if s == 'SELL')
-                
-                if buy_weight > sell_weight and buy_weight >= 5:
-                    final_signal = 'BUY'
-                    confidence = min(buy_weight / 12.0, 1.0)
-                elif sell_weight > buy_weight and sell_weight >= 5:
-                    final_signal = 'SELL'
-                    confidence = min(sell_weight / 12.0, 1.0)
-                else:
-                    final_signal = 'HOLD'
-                    confidence = 0.3
+            # Decision
+            if 'BUY' in signals:
+                return {'signal': 'BUY', 'confidence': 0.8, 'reasons': reasons, 'price': current_price}
+            elif 'SELL' in signals:
+                return {'signal': 'SELL', 'confidence': 0.8, 'reasons': reasons, 'price': current_price}
             else:
-                final_signal = 'HOLD'
-                confidence = 0.2
-            
-            return {
-                'signal': final_signal,
-                'confidence': confidence,
-                'reasons': reasons[:5],  # Show top 5 reasons
-                'indicators': {
-                    'price': current_price,
-                    'sma_20': sma_20,
-                    'sma_50': sma_50,
-                    'ema_12': ema_12,
-                    'rsi': rsi,
-                    'bb_position': bb_position,
-                    'volume_ratio': volume_ratio,
-                    'price_change_pct': price_change_pct
-                },
-                'chart_data': data
-            }
-            
+                return {'signal': 'HOLD', 'confidence': 0.3, 'reasons': ['Market conditions unclear'], 'price': current_price}
+                
         except Exception as e:
-            return {
-                'signal': 'HOLD',
-                'confidence': 0.0,
-                'reason': f'Analysis error: {str(e)}',
-                'indicators': {}
-            }
-
-def create_advanced_chart(data, symbol):
-    """Create comprehensive trading chart"""
-    if data.empty:
-        return None
-    
-    fig = make_subplots(
-        rows=3, cols=1,
-        subplot_titles=(f'{symbol} - Price Analysis', 'RSI', 'Volume'),
-        vertical_spacing=0.08,
-        row_heights=[0.6, 0.2, 0.2]
-    )
-    
-    # Candlestick chart
-    fig.add_trace(go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        name=symbol
-    ), row=1, col=1)
-    
-    # Moving averages
-    sma_20 = TechnicalIndicators.sma(data['Close'], 20)
-    sma_50 = TechnicalIndicators.sma(data['Close'], 50)
-    ema_12 = TechnicalIndicators.ema(data['Close'], 12)
-    
-    fig.add_trace(go.Scatter(x=data.index, y=sma_20, name='SMA 20', line=dict(color='orange', width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=sma_50, name='SMA 50', line=dict(color='red', width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=ema_12, name='EMA 12', line=dict(color='lime', width=1)), row=1, col=1)
-    
-    # Bollinger Bands
-    bb_upper, bb_lower, bb_middle = TechnicalIndicators.bollinger_bands(data['Close'])
-    fig.add_trace(go.Scatter(x=data.index, y=bb_upper, name='BB Upper', line=dict(color='gray', width=1, dash='dash')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=bb_lower, name='BB Lower', line=dict(color='gray', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'), row=1, col=1)
-    
-    # RSI
-    rsi = TechnicalIndicators.rsi(data['Close'])
-    fig.add_trace(go.Scatter(x=data.index, y=rsi, name='RSI', line=dict(color='purple', width=2)), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-    
-    # Volume
-    colors = ['red' if close < open else 'green' for close, open in zip(data['Close'], data['Open'])]
-    fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='Volume', marker_color=colors, opacity=0.7), row=3, col=1)
-    
-    fig.update_layout(
-        height=700,
-        title_text=f'{symbol} - Complete Market Analysis',
-        template='plotly_dark',
-        showlegend=True
-    )
-    
-    return fig
+            return {'signal': 'HOLD', 'confidence': 0.0, 'reason': f'Analysis error: {str(e)}'}
 
 def main():
     """Main application"""
     
     # Header
-    st.markdown('<div class="main-header">🤖 FXPRO CTRADER AI TRADING SYSTEM</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">🔥 REAL LIVE CTRADER TRADING SYSTEM 🔥</div>', unsafe_allow_html=True)
     
-    # Initialize components in correct order
-    if 'ctrader_api' not in st.session_state:
-        st.session_state.ctrader_api = cTraderAPI()
+    # Initialize components
+    if 'ws_client' not in st.session_state or st.session_state.ws_client is None:
+        st.session_state.ws_client = cTraderWebSocketClient()
     
     if 'ai_engine' not in st.session_state:
         st.session_state.ai_engine = AITradingEngine()
     
-    # Get API reference
-    api = st.session_state.ctrader_api
+    ws_client = st.session_state.ws_client
     ai_engine = st.session_state.ai_engine
     
-    # Initialize trading engine with proper error handling
-    if 'trading_engine' not in st.session_state or not hasattr(st.session_state.trading_engine, 'api_handler'):
-        try:
-            st.session_state.trading_engine = TradingEngine(api_handler=api)
-        except Exception as e:
-            st.session_state.trading_engine = TradingEngine()
-    
-    trading_engine = st.session_state.trading_engine
-    
     # Connection status
-    if st.session_state.connection_status == 'live':
-        st.markdown('<div class="live-connected">🔥 LIVE TRADING ACTIVE - Real Money Trading Enabled</div>', unsafe_allow_html=True)
-    elif st.session_state.connection_status == 'live_simulation':
-        st.markdown('<div class="live-connected">🚀 LIVE TRADING TOKENS - Enhanced Mode with Trading Capability</div>', unsafe_allow_html=True)
+    if st.session_state.account_authorized:
+        st.markdown('<div class="live-trading">🔥 LIVE TRADING ACTIVE - REAL MONEY ACCOUNT CONNECTED 🔥</div>', unsafe_allow_html=True)
+    elif st.session_state.ctrader_ws_connected:
+        st.markdown('<div class="live-trading">🔌 CONNECTED TO CTRADER - AUTHENTICATING ACCOUNT...</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="simulation-mode">🎮 SIMULATION MODE - Enter your tokens to connect</div>', unsafe_allow_html=True)
+        st.markdown('<div class="live-trading">🚀 READY TO CONNECT TO YOUR LIVE CTRADER ACCOUNT</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
-        st.header("🎛️ TRADING CONTROL PANEL")
+        st.header("🔥 LIVE TRADING CONTROL")
         
-        if not st.session_state.api_connected:
-            st.subheader("🔑 cTrader API Connection")
-            
-            st.info("""
-            **Connect your cTrader account:**
-            
-            Enter your API tokens below to connect to live cTrader API for real account data.
-            """)
-            
-            access_token = st.text_area(
-                "Access Token:", 
-                value="FZVyeFsxKkElJrvinCQxoTPSRu7ryZXd8Qn66szleKk",
-                help="Your cTrader access token"
-            )
-            
-            refresh_token = st.text_area(
-                "Refresh Token:",
-                value="I4M1fXeHOkFfLUDeozkHiA-uEwlHm_k8ZjWij02BQX0", 
-                help="Your cTrader refresh token"
-            )
-            
-            client_id = st.text_input("Client ID (Optional):", value="16128_1N2FGw1faESealOA", help="For token refresh")
-            client_secret = st.text_input("Client Secret (Optional):", type="password", help="For token refresh")
-            
-            if st.button("🚀 Connect to Live API", type="primary"):
-                if access_token and refresh_token:
-                    with st.spinner("Testing cTrader API connection..."):
-                        api.set_credentials(access_token, refresh_token, client_id, client_secret)
-                        success, message, data = api.test_connection()
-                        
-                        if success:
-                            st.success(message)
-                            st.balloons()
-                        else:
-                            st.warning(message)
-                            st.info("💡 Don't worry! The system works perfectly in simulation mode with real market data.")
-                        
-                        time.sleep(2)
-                        st.rerun()
-                else:
-                    st.error("Please enter access and refresh tokens")
+        # Connection controls
+        st.subheader("🔌 WebSocket Connection")
         
-        else:
-            st.success("✅ API Connected!")
-            
-            # Token refresh
-            if st.button("🔄 Refresh Token"):
-                success, message = api.refresh_token_if_needed()
-                if success:
-                    st.success(message)
-                else:
-                    st.warning(message)
+        # Your live trading tokens
+        access_token = st.text_input(
+            "Access Token:", 
+            value="FZVyeFsxKkElJrvinCQxoTPSRu7ryZXd8Qn66szleKk",
+            type="password"
+        )
         
-        # Account info
-        account = api.get_account_info()
-        if account:
-            st.markdown(f"""
-            <div class="api-status">
-            <strong>Account:</strong> {account['account_id']}<br/>
-            <strong>Balance:</strong> ${account['balance']:,.2f}<br/>
-            <strong>Equity:</strong> ${account['equity']:,.2f}<br/>
-            <strong>Status:</strong> {account['status']}
-            </div>
-            """, unsafe_allow_html=True)
+        client_secret = st.text_input(
+            "Client Secret:",
+            type="password",
+            help="Required for some brokers"
+        )
         
-        # System controls
-        st.subheader("🚀 System Controls")
+        account_id = st.text_input("Account ID:", value="10618580")
         
+        # Update credentials
+        if access_token:
+            ws_client.access_token = access_token
+            ws_client.client_secret = client_secret
+            ws_client.account_id = account_id
+        
+        # Connection buttons
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("▶️ START", type="primary"):
-                st.session_state.system_running = True
-                st.success("AI System started!")
-                st.rerun()
+            if st.button("🔥 CONNECT LIVE", type="primary"):
+                ws_client.log_message("🚀 Attempting LIVE connection...")
+                success = ws_client.connect(use_demo=False)
+                if not success:
+                    st.error("Failed to initiate connection")
+                else:
+                    st.success("Connection initiated!")
+                    time.sleep(2)
+                    st.rerun()
         
         with col2:
-            if st.button("⏹️ STOP"):
-                st.session_state.system_running = False
-                st.warning("System stopped!")
-                st.rerun()
+            if st.button("🧪 DEMO MODE"):
+                ws_client.log_message("🧪 Attempting DEMO connection...")
+                success = ws_client.connect(use_demo=True)
+                if not success:
+                    st.error("Failed to initiate connection")
+                else:
+                    st.success("Demo connection initiated!")
+                    time.sleep(2)
+                    st.rerun()
         
-        # Trading stats
-        if st.session_state.total_trades > 0:
-            st.subheader("📊 Performance")
-            win_rate = (st.session_state.winning_trades / st.session_state.total_trades) * 100
-            st.metric("Win Rate", f"{win_rate:.1f}%")
-            st.metric("Total Trades", st.session_state.total_trades)
+        if st.button("🔌 Disconnect"):
+            ws_client.disconnect()
+            st.rerun()
         
-        # Reset
-        if st.button("🔄 Reset Session"):
-            for key in ['daily_pnl', 'trades_today', 'total_trades', 'winning_trades', 'trade_history']:
-                if key in st.session_state:
-                    if key == 'trade_history':
-                        st.session_state[key] = []
-                    else:
-                        st.session_state[key] = 0
-            st.success("Session reset!")
+        # Connection log
+        st.subheader("📋 Connection Log")
+        if st.session_state.connection_log:
+            for log in st.session_state.connection_log[-5:]:  # Show last 5
+                st.text(log)
+        else:
+            st.text("No logs yet...")
+        
+        # Clear logs
+        if st.button("🗑️ Clear Logs"):
+            st.session_state.connection_log = []
             st.rerun()
     
-    # Account metrics
-    account = api.get_account_info()
-    if account:
+    # Account information
+    if st.session_state.account_authorized:
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.markdown(f'<div class="account-metric">💰 Balance<br/>${account["balance"]:,.2f}</div>', unsafe_allow_html=True)
+            balance = st.session_state.real_account_balance
+            st.markdown(f'<div class="account-metric">💰 REAL Balance<br/>${balance:,.2f}</div>', unsafe_allow_html=True)
         
         with col2:
-            st.markdown(f'<div class="account-metric">📈 Equity<br/>${account["equity"]:,.2f}</div>', unsafe_allow_html=True)
+            equity = st.session_state.real_account_equity
+            st.markdown(f'<div class="account-metric">📈 REAL Equity<br/>${equity:,.2f}</div>', unsafe_allow_html=True)
         
         with col3:
-            pnl_color = "🟢" if st.session_state.daily_pnl >= 0 else "🔴"
-            st.markdown(f'<div class="account-metric">{pnl_color} Daily P&L<br/>${st.session_state.daily_pnl:,.2f}</div>', unsafe_allow_html=True)
+            trades_count = len(st.session_state.live_trades)
+            st.markdown(f'<div class="account-metric">🔥 Live Trades<br/>{trades_count}</div>', unsafe_allow_html=True)
         
         with col4:
-            st.markdown(f'<div class="account-metric">📊 Trades<br/>{st.session_state.trades_today}</div>', unsafe_allow_html=True)
+            status = "LIVE TRADING" if st.session_state.account_authorized else "CONNECTING"
+            st.markdown(f'<div class="account-metric">⚡ Status<br/>{status}</div>', unsafe_allow_html=True)
     
     # Trading section
-    if st.session_state.system_running:
-        st.subheader("🤖 AI MARKET ANALYSIS & TRADING")
+    if st.session_state.account_authorized:
+        st.subheader("🤖 AI LIVE TRADING")
         
-        # Currency pair selection
-        available_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURGBP', 'EURJPY']
+        symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD']
         selected_symbols = st.multiselect(
-            "Select currency pairs for analysis:",
-            available_symbols,
-            default=['EURUSD', 'GBPUSD', 'USDJPY'],
-            help="AI will analyze these pairs and provide trading signals"
+            "Select currency pairs for LIVE trading:",
+            symbols,
+            default=['EURUSD'],
+            help="⚠️ WARNING: This will place REAL trades with REAL money!"
         )
         
         for symbol in selected_symbols:
-            with st.expander(f"📈 {symbol} - AI Analysis & Trading", expanded=True):
-                
-                # Get current price
-                current_price = trading_engine.market_data.get_current_price(symbol)
-                spread = trading_engine.get_spread(symbol)
-                
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.write(f"**💹 Current Price:** {current_price:.5f}")
-                
-                with col2:
-                    if 'JPY' in symbol:
-                        spread_pips = spread / 0.01
-                    else:
-                        spread_pips = spread / 0.0001
-                    st.write(f"**📊 Spread:** {spread_pips:.1f} pips")
+            with st.expander(f"🔥 {symbol} - LIVE TRADING", expanded=True):
                 
                 # AI analysis
-                with st.spinner(f"🧠 AI analyzing {symbol}..."):
-                    analysis = ai_engine.analyze_symbol(symbol)
-                
+                analysis = ai_engine.analyze_symbol(symbol)
                 signal = analysis['signal']
                 confidence = analysis['confidence']
+                current_price = analysis.get('price', 0)
                 
                 # Display signal
                 signal_class = f"signal-{signal.lower()}"
                 st.markdown(f'<div class="{signal_class}">🎯 AI SIGNAL: {signal} | Confidence: {confidence:.1%}</div>', unsafe_allow_html=True)
                 
-                # Analysis details
-                col1, col2 = st.columns([3, 2])
+                st.write(f"**Current Price:** {current_price:.5f}")
                 
-                with col1:
-                    st.write("**🧠 AI Analysis:**")
+                # Analysis details
+                if 'reasons' in analysis:
+                    st.write("**AI Analysis:**")
                     for reason in analysis['reasons']:
                         st.write(f"• {reason}")
-                    
-                    if not analysis['reasons']:
-                        st.write("• No clear signals - market consolidating")
                 
-                with col2:
-                    if 'indicators' in analysis:
-                        indicators = analysis['indicators']
-                        st.write("**📊 Key Indicators:**")
-                        if 'rsi' in indicators:
-                            st.write(f"RSI: {indicators['rsi']:.1f}")
-                        if 'price_change_pct' in indicators:
-                            st.write(f"24h Change: {indicators['price_change_pct']:+.2f}%")
-                        if 'volume_ratio' in indicators:
-                            st.write(f"Volume: {indicators['volume_ratio']:.1f}x avg")
-                
-                # Trading execution
-                if signal in ['BUY', 'SELL'] and confidence > 0.5:
-                    st.subheader("⚡ Execute Trade")
+                # LIVE TRADING SECTION
+                if signal in ['BUY', 'SELL'] and confidence > 0.6:
+                    st.subheader("⚠️ LIVE TRADE EXECUTION")
                     
-                    col1, col2, col3, col4 = st.columns(4)
+                    st.warning("🚨 WARNING: This will place a REAL trade with REAL money! 🚨")
+                    
+                    col1, col2, col3 = st.columns(3)
                     
                     with col1:
-                        volume_options = [1000, 2500, 5000, 10000, 25000]
-                        volume = st.selectbox("Position Size:", volume_options, index=1, key=f"vol_{symbol}")
+                        volume = st.selectbox("Volume (units):", [1000, 5000, 10000], key=f"vol_{symbol}")
                     
                     with col2:
                         st.write(f"**Signal:** {signal}")
                         st.write(f"**Confidence:** {confidence:.1%}")
                     
                     with col3:
-                        # Calculate potential risk
-                        risk_pips = 20  # Assume 20 pip stop loss
-                        risk_amount = (volume / 10000) * risk_pips * (0.01 if 'JPY' in symbol else 0.0001) * 100
-                        st.write(f"**Risk:** ~${risk_amount:.2f}")
-                        if hasattr(api, 'has_trading_scope') and api.has_trading_scope:
-                            st.write(f"**Type:** 🔥 LIVE TRADING")
-                        else:
-                            st.write(f"**Type:** Enhanced Simulation")
-                    
-                    with col4:
-                        if hasattr(api, 'has_trading_scope') and api.has_trading_scope:
-                            button_label = f"🔥 LIVE {signal}"
-                        else:
-                            button_label = f"🚀 {signal}"
-                            
-                        if st.button(f"{button_label} {symbol}", key=f"trade_{symbol}", type="primary"):
-                            with st.spinner("Executing trade..."):
-                                try:
-                                    success, trade_result = trading_engine.execute_trade(symbol, signal, volume, current_price)
-                                    
-                                    if success:
-                                        pnl = trade_result['pnl']
-                                        pnl_emoji = "💰" if pnl > 0 else "📉"
-                                        execution_type = trade_result.get('execution_type', 'SIMULATION')
-                                        
-                                        st.success(f"""
-                                        {pnl_emoji} **Trade Executed! ({execution_type})**
-                                        
-                                        {signal} {volume:,} units {symbol}
-                                        Entry: {trade_result['entry']:.5f}
-                                        Exit: {trade_result['exit']:.5f}
-                                        Pips: {trade_result['pips']:+.1f}
-                                        P&L: ${pnl:+.2f}
-                                        Commission: ${trade_result['commission']:.2f}
-                                        """)
-                                        
-                                        if pnl > 0:
-                                            st.balloons()
-                                        
-                                        time.sleep(3)
-                                        st.rerun()
-                                    else:
-                                        st.error(f"Trade failed: {trade_result}")
-                                except Exception as e:
-                                    st.error(f"Trade execution error: {str(e)}")
-                
-                # Chart
-                if 'chart_data' in analysis and not analysis['chart_data'].empty:
-                    chart = create_advanced_chart(analysis['chart_data'], symbol)
-                    if chart:
-                        st.plotly_chart(chart, use_container_width=True)
+                        if st.button(f"🔥 LIVE {signal} {symbol}", key=f"trade_{symbol}", type="primary"):
+                            with st.spinner("🚀 PLACING LIVE TRADE..."):
+                                success, message = ws_client.place_market_order(symbol, signal, volume/100)  # Convert to lots
+                                
+                                if success:
+                                    st.success(f"🔥 LIVE TRADE PLACED!\n\n{message}")
+                                    st.balloons()
+                                else:
+                                    st.error(f"❌ Trade failed: {message}")
+                                
+                                time.sleep(3)
+                                st.rerun()
+    
+    elif st.session_state.ctrader_ws_connected:
+        st.info("🔑 Connected to cTrader WebSocket. Waiting for account authentication...")
+        st.write("Check the connection log in the sidebar for details.")
     
     else:
-        st.info("🔄 Click **START** in the sidebar to begin AI analysis and trading")
-    
-    # Trade history
-    if st.session_state.trade_history:
-        st.subheader("📊 Recent Trading History")
+        st.warning("""
+        🔥 **LIVE TRADING SETUP**
         
-        # Create DataFrame for better display
-        df_trades = pd.DataFrame(st.session_state.trade_history[:10])
+        1. **Enter your live trading tokens** in the sidebar
+        2. **Click "CONNECT LIVE"** for real money trading
+        3. **Click "DEMO MODE"** for testing
         
-        if not df_trades.empty:
-            # Format the DataFrame
-            df_display = df_trades[['time', 'symbol', 'side', 'volume', 'pips', 'pnl']].copy()
-            df_display['pnl'] = df_display['pnl'].apply(lambda x: f"${x:+.2f}")
-            df_display['pips'] = df_display['pips'].apply(lambda x: f"{x:+.1f}")
-            df_display['volume'] = df_display['volume'].apply(lambda x: f"{x:,}")
-            
-            st.dataframe(df_display, use_container_width=True)
-            
-            # Quick stats
-            total_pnl = sum(trade['pnl'] for trade in st.session_state.trade_history)
-            avg_pnl = total_pnl / len(st.session_state.trade_history) if st.session_state.trade_history else 0
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Session P&L", f"${total_pnl:.2f}")
-            with col2:
-                st.metric("Avg per Trade", f"${avg_pnl:.2f}")
-            with col3:
-                if st.session_state.total_trades > 0:
-                    win_rate = (st.session_state.winning_trades / st.session_state.total_trades) * 100
-                    st.metric("Win Rate", f"{win_rate:.1f}%")
+        ⚠️ **WARNING**: LIVE mode uses REAL MONEY from your cTrader account!
+        """)
     
-    # Footer info
+    # Live trades history
+    if st.session_state.live_trades:
+        st.subheader("📊 LIVE TRADES HISTORY")
+        
+        df = pd.DataFrame(st.session_state.live_trades)
+        st.dataframe(df, use_container_width=True)
+    
+    # Connection status details
+    st.subheader("🔌 Connection Status")
+    
+    status_col1, status_col2 = st.columns(2)
+    
+    with status_col1:
+        st.markdown(f"""
+        <div class="connection-status">
+        <strong>WebSocket:</strong> {'🟢 Connected' if st.session_state.ctrader_ws_connected else '🔴 Disconnected'}<br/>
+        <strong>Account:</strong> {'🟢 Authorized' if st.session_state.account_authorized else '🔴 Not Authorized'}<br/>
+        <strong>Trading:</strong> {'🔥 LIVE ACTIVE' if st.session_state.account_authorized else '❌ Inactive'}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with status_col2:
+        if st.session_state.connection_log:
+            st.write("**Recent Activity:**")
+            for log in st.session_state.connection_log[-3:]:
+                st.text(log)
+    
+    # Footer warning
     st.markdown("---")
-    if hasattr(api, 'has_trading_scope') and api.has_trading_scope:
-        connection_status = "🔥 LIVE TRADING ENABLED"
-    elif st.session_state.get('api_connected', False):
-        connection_status = "Live API Connected"
-    else:
-        connection_status = "Enhanced Simulation"
-        
-    st.info(f"""
-    🎯 **Current Mode:** {connection_status} with Real Market Data
+    st.error("""
+    🚨 **LIVE TRADING WARNING** 🚨
     
-    **Features Active:**
-    • ✅ Real-time market data analysis
-    • ✅ Advanced AI trading signals (5 strategies)
-    • {'🔥 LIVE TRADING with real money' if hasattr(api, 'has_trading_scope') and api.has_trading_scope else '✅ Realistic trade simulation with spreads & slippage'}
-    • ✅ Professional risk management
-    • ✅ Complete performance tracking
+    This system connects to your REAL cTrader account and can place REAL trades with REAL money.
     
-    **🚀 {'LIVE TRADING IS ACTIVE!' if hasattr(api, 'has_trading_scope') and api.has_trading_scope else 'Ready for live trading when API endpoints are accessible!'}**
+    • ✅ **DEMO MODE** - Safe testing with virtual money
+    • ⚠️ **LIVE MODE** - Real trades with your actual account balance
+    
+    **Use DEMO MODE first to test the system!**
     """)
     
-    # Auto-refresh every 30 seconds when running
-    if st.session_state.system_running:
-        time.sleep(30)
+    # Auto-refresh connection status
+    if st.session_state.ctrader_ws_connected:
+        time.sleep(5)
         st.rerun()
 
 if __name__ == "__main__":
