@@ -652,7 +652,7 @@ def main():
     # Header
     st.markdown('<div class="main-header">🤖 FXPRO CTRADER AI TRADING SYSTEM</div>', unsafe_allow_html=True)
     
-    # Initialize components
+    # Initialize components in correct order
     if 'ctrader_api' not in st.session_state:
         st.session_state.ctrader_api = cTraderAPI()
     
@@ -663,9 +663,12 @@ def main():
     api = st.session_state.ctrader_api
     ai_engine = st.session_state.ai_engine
     
-    # Initialize trading engine with API reference
-    if 'trading_engine' not in st.session_state:
-        st.session_state.trading_engine = TradingEngine(api)
+    # Initialize trading engine with proper error handling
+    if 'trading_engine' not in st.session_state or not hasattr(st.session_state.trading_engine, 'api_handler'):
+        try:
+            st.session_state.trading_engine = TradingEngine(api_handler=api)
+        except Exception as e:
+            st.session_state.trading_engine = TradingEngine()
     
     trading_engine = st.session_state.trading_engine
     
@@ -883,40 +886,47 @@ def main():
                         risk_pips = 20  # Assume 20 pip stop loss
                         risk_amount = (volume / 10000) * risk_pips * (0.01 if 'JPY' in symbol else 0.0001) * 100
                         st.write(f"**Risk:** ~${risk_amount:.2f}")
-                        if api.has_trading_scope:
+                        if hasattr(api, 'has_trading_scope') and api.has_trading_scope:
                             st.write(f"**Type:** 🔥 LIVE TRADING")
                         else:
                             st.write(f"**Type:** Enhanced Simulation")
                     
                     with col4:
-                        button_label = f"🔥 LIVE {signal}" if api.has_trading_scope else f"🚀 {signal}"
+                        if hasattr(api, 'has_trading_scope') and api.has_trading_scope:
+                            button_label = f"🔥 LIVE {signal}"
+                        else:
+                            button_label = f"🚀 {signal}"
+                            
                         if st.button(f"{button_label} {symbol}", key=f"trade_{symbol}", type="primary"):
                             with st.spinner("Executing trade..."):
-                                success, trade_result = trading_engine.execute_trade(symbol, signal, volume, current_price)
-                                
-                                if success:
-                                    pnl = trade_result['pnl']
-                                    pnl_emoji = "💰" if pnl > 0 else "📉"
-                                    execution_type = trade_result.get('execution_type', 'SIMULATION')
+                                try:
+                                    success, trade_result = trading_engine.execute_trade(symbol, signal, volume, current_price)
                                     
-                                    st.success(f"""
-                                    {pnl_emoji} **Trade Executed! ({execution_type})**
-                                    
-                                    {signal} {volume:,} units {symbol}
-                                    Entry: {trade_result['entry']:.5f}
-                                    Exit: {trade_result['exit']:.5f}
-                                    Pips: {trade_result['pips']:+.1f}
-                                    P&L: ${pnl:+.2f}
-                                    Commission: ${trade_result['commission']:.2f}
-                                    """)
-                                    
-                                    if pnl > 0:
-                                        st.balloons()
-                                    
-                                    time.sleep(3)
-                                    st.rerun()
-                                else:
-                                    st.error(f"Trade failed: {trade_result}")
+                                    if success:
+                                        pnl = trade_result['pnl']
+                                        pnl_emoji = "💰" if pnl > 0 else "📉"
+                                        execution_type = trade_result.get('execution_type', 'SIMULATION')
+                                        
+                                        st.success(f"""
+                                        {pnl_emoji} **Trade Executed! ({execution_type})**
+                                        
+                                        {signal} {volume:,} units {symbol}
+                                        Entry: {trade_result['entry']:.5f}
+                                        Exit: {trade_result['exit']:.5f}
+                                        Pips: {trade_result['pips']:+.1f}
+                                        P&L: ${pnl:+.2f}
+                                        Commission: ${trade_result['commission']:.2f}
+                                        """)
+                                        
+                                        if pnl > 0:
+                                            st.balloons()
+                                        
+                                        time.sleep(3)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Trade failed: {trade_result}")
+                                except Exception as e:
+                                    st.error(f"Trade execution error: {str(e)}")
                 
                 # Chart
                 if 'chart_data' in analysis and not analysis['chart_data'].empty:
@@ -959,9 +969,9 @@ def main():
     
     # Footer info
     st.markdown("---")
-    if api.has_trading_scope:
+    if hasattr(api, 'has_trading_scope') and api.has_trading_scope:
         connection_status = "🔥 LIVE TRADING ENABLED"
-    elif st.session_state.api_connected:
+    elif st.session_state.get('api_connected', False):
         connection_status = "Live API Connected"
     else:
         connection_status = "Enhanced Simulation"
@@ -972,11 +982,11 @@ def main():
     **Features Active:**
     • ✅ Real-time market data analysis
     • ✅ Advanced AI trading signals (5 strategies)
-    • {'🔥 LIVE TRADING with real money' if api.has_trading_scope else '✅ Realistic trade simulation with spreads & slippage'}
+    • {'🔥 LIVE TRADING with real money' if hasattr(api, 'has_trading_scope') and api.has_trading_scope else '✅ Realistic trade simulation with spreads & slippage'}
     • ✅ Professional risk management
     • ✅ Complete performance tracking
     
-    **🚀 {'LIVE TRADING IS ACTIVE!' if api.has_trading_scope else 'Ready for live trading when API endpoints are accessible!'}**
+    **🚀 {'LIVE TRADING IS ACTIVE!' if hasattr(api, 'has_trading_scope') and api.has_trading_scope else 'Ready for live trading when API endpoints are accessible!'}**
     """)
     
     # Auto-refresh every 30 seconds when running
