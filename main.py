@@ -8,8 +8,6 @@ import time
 import requests
 import json
 import base64
-import websocket
-import threading
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
