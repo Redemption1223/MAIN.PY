@@ -682,17 +682,17 @@ def main():
             
             access_token = st.text_area(
                 "Access Token:", 
-                value="Eh7ggzndPewZSHRP8_996-OnixrVFrH7y3XX-QT5ZqE",
+                value="FBcywaRClAn6m5mXcv-WAxT8vOS_rm2lpJ5iT55aZM",
                 help="Your cTrader access token"
             )
             
             refresh_token = st.text_area(
                 "Refresh Token:",
-                value="fWGesh3xD3yyPZtyViwKcz3eVlJr2xZpS2FB33ohqp4", 
+                value="6lZHuwf1ClTfbntE_PRPD0kBwQYlV2HgYzb44Zi9HZs", 
                 help="Your cTrader refresh token"
             )
             
-            client_id = st.text_input("Client ID (Optional):", help="For token refresh")
+            client_id = st.text_input("Client ID (Optional):", value="16128_1N2FGw1faESealOA", help="For token refresh")
             client_secret = st.text_input("Client Secret (Optional):", type="password", help="For token refresh")
             
             if st.button("🚀 Connect to Live API", type="primary"):
