@@ -659,11 +659,14 @@ def main():
     if 'ai_engine' not in st.session_state:
         st.session_state.ai_engine = AITradingEngine()
     
+    # Get API reference
+    api = st.session_state.ctrader_api
+    ai_engine = st.session_state.ai_engine
+    
+    # Initialize trading engine with API reference
     if 'trading_engine' not in st.session_state:
         st.session_state.trading_engine = TradingEngine(api)
     
-    api = st.session_state.ctrader_api
-    ai_engine = st.session_state.ai_engine
     trading_engine = st.session_state.trading_engine
     
     # Connection status
